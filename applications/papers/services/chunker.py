@@ -1,8 +1,8 @@
 from typing import List
 
-from core.config import PAPER_CHUNK_SIZE, PAPER_CHUNK_OVERLAP, PAPER_MAX_CHARS
-from core.state import DocumentChunk
-from core.interfaces import ChunkingStrategy
+from applications.papers.config import PAPER_CHUNK_SIZE, PAPER_CHUNK_OVERLAP, PAPER_MAX_CHARS
+from applications.papers.entities import DocumentChunk
+from applications.papers.interfaces import ChunkingStrategy
 
 
 class OverlapChunker(ChunkingStrategy):

@@ -1,8 +1,8 @@
 from typing import List, Optional
 
-from core.state import Paper
-from core.interfaces import PaperRepository
-from applications.services.storage import JsonPaperRepository
+from applications.papers.entities import Paper
+from applications.papers.interfaces import PaperRepository
+from applications.papers.services.storage import JsonPaperRepository
 
 
 class PaperContextService:

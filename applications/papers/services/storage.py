@@ -2,9 +2,9 @@ import json
 import os
 from typing import List, Optional
 
-from core.config import PAPER_STORAGE_PATH
-from core.state import DocumentChunk, Paper
-from core.interfaces import PaperRepository
+from applications.papers.config import PAPER_STORAGE_PATH
+from applications.papers.entities import DocumentChunk, Paper
+from applications.papers.interfaces import PaperRepository
 
 
 def _paper_path(store_dir: str, paper_id: str) -> str:

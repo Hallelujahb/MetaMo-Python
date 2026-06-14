@@ -2,12 +2,12 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from core.config import PAPER_CONTEXT_MAX_CHARS
-from core.state import Paper
-from core.interfaces import PaperRepository, TextExtractor, ChunkingStrategy
-from applications.services.extractors import get_extractor
-from applications.services.chunker import OverlapChunker
-from applications.services.storage import JsonPaperRepository
+from applications.papers.config import PAPER_CONTEXT_MAX_CHARS
+from applications.papers.entities import Paper
+from applications.papers.interfaces import PaperRepository, TextExtractor, ChunkingStrategy
+from applications.papers.services.extractors import get_extractor
+from applications.papers.services.chunker import OverlapChunker
+from applications.papers.services.storage import JsonPaperRepository
 
 
 class PaperIngestionService:

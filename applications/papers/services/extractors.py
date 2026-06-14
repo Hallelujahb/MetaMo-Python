@@ -1,5 +1,5 @@
 import subprocess
-from core.interfaces import TextExtractor
+from applications.papers.interfaces import TextExtractor
 
 
 class PdfTextExtractor(TextExtractor):

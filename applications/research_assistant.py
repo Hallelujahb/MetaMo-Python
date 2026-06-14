@@ -6,9 +6,8 @@ if __package__ in (None, ""):
     if repo_root not in sys.path:
         sys.path.insert(0, repo_root)
 
-from applications.services.response import AssistantResponse, format_response
-from applications.services.engine import MetaMoEngine
-from applications.services import PaperContextService, PaperIngestionService
+from core.engine import MetaMoEngine, AssistantResponse, format_response
+from applications.papers import PaperContextService, PaperIngestionService
 
 
 def _chat_loop(engine: MetaMoEngine, paper_context: str | None):
