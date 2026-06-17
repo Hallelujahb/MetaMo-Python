@@ -11,6 +11,8 @@ from applications.papers.services.storage import JsonPaperRepository
 
 
 class PaperIngestionService:
+    """Orchestrates paper ingestion: extraction, chunking, and persistence."""
+
     def __init__(
         self,
         extractor: Optional[TextExtractor] = None,
@@ -22,6 +24,7 @@ class PaperIngestionService:
         self.repository = repository or JsonPaperRepository()
 
     def _get_extractor(self, path: str) -> TextExtractor:
+        """Return the configured extractor, or auto-detect one for *path*."""
         return self.extractor or get_extractor(path)
 
     def ingest(self, path: str) -> Paper:
@@ -45,6 +48,7 @@ class PaperIngestionService:
         return paper
 
     def build_context(self, paper: Paper, max_chars: int = PAPER_CONTEXT_MAX_CHARS) -> str:
+        """Concatenate paper chunks up to *max_chars*, appending a truncation notice if needed."""
         accumulated = []
         total = 0
         for chunk in sorted(paper.chunks, key=lambda c: c.index):

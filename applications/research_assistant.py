@@ -11,6 +11,7 @@ from applications.papers import PaperContextService, PaperIngestionService
 
 
 def _chat_loop(engine: MetaMoEngine, paper_context: str | None):
+    """Run the REPL chat loop, optionally augmenting user input with paper context."""
     print("\nSystem Ready. Subsystems: [Curiosity] & [Ethics]. Type 'quit' to exit.")
     print("-" * 60)
 
@@ -34,6 +35,7 @@ def _chat_loop(engine: MetaMoEngine, paper_context: str | None):
 
 
 def interactive_loop():
+    """Start the chat interface, auto-loading the latest stored paper as context."""
     print("Initializing MetaMo Multi-Subsystem Chat Interface...")
     engine = MetaMoEngine()
     context_svc = PaperContextService()
@@ -49,6 +51,7 @@ def interactive_loop():
 
 
 def load_and_chat():
+    """Ingest a paper file from the CLI argument and start a context-aware chat."""
     path = sys.argv[1]
     print(f"Loading paper from {path}...")
 

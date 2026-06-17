@@ -19,6 +19,8 @@ from llm.conversation import MetaMoChatAssistant
 
 @dataclass
 class AssistantResponse:
+    """Encapsulates the full output of a MetaMo processing cycle for display."""
+
     text: str
     action_id: str
     individuation: float
@@ -29,6 +31,7 @@ class AssistantResponse:
 
 
 def format_response(response: AssistantResponse) -> str:
+    """Render an AssistantResponse as a human-readable string."""
     return (
         f"  > [Curiosity Subsystem] wants to: {response.curiosity_action}\n"
         f"  > [Ethics Subsystem] wants to: {response.ethics_action}\n"
@@ -42,6 +45,7 @@ def format_response(response: AssistantResponse) -> str:
 
 
 def _default_goal_vector() -> np.ndarray:
+    """Return the default goal vector used when initialising states."""
     G = np.zeros(NUM_GOALS)
     G[G_IND] = 0.5
     G[G_TRANS] = 0.5
@@ -55,6 +59,8 @@ def _default_goal_vector() -> np.ndarray:
 
 
 class MetaMoEngine:
+    """Orchestrates the full MetaMo processing pipeline for a single user input."""
+
     def __init__(self):
         self.bimonad = MetaMoPseudoBimonad(OpenPsiAppraisal(), MagusDecision())
         self.assistant = MetaMoChatAssistant()
@@ -67,6 +73,7 @@ class MetaMoEngine:
 
     @staticmethod
     def _make_state(override: Optional[dict] = None) -> MotivationalState:
+        """Build a MotivationalState with optional goal-index overrides."""
         G = _default_goal_vector()
         if override:
             for idx, val in override.items():
@@ -75,6 +82,7 @@ class MetaMoEngine:
         return MotivationalState(G=G, M=M)
 
     def process(self, user_input: str) -> AssistantResponse:
+        """Run the full MetaMo pipeline on *user_input* and return the result."""
         stimulus = get_stimulus_from_text(user_input)
         merged_current = self.bimonad.parallel_merge(self.state_curiosity, self.state_ethics)
         current_mood = {"arousal": merged_current.M[M_AROUSAL], "caution": merged_current.M[M_SECURING]}
@@ -105,5 +113,6 @@ class MetaMoEngine:
         )
 
     def process_with_context(self, user_input: str, context: str) -> AssistantResponse:
+        """Prepend *context* to *user_input* before processing."""
         augmented_input = f"[Paper Context]\n{context}\n\n[User Query]\n{user_input}"
         return self.process(augmented_input)

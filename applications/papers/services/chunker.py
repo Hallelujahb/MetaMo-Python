@@ -6,6 +6,8 @@ from applications.papers.interfaces import ChunkingStrategy
 
 
 class OverlapChunker(ChunkingStrategy):
+    """Splits text into overlapping chunks of a fixed size."""
+
     def __init__(self, chunk_size: int = PAPER_CHUNK_SIZE, overlap: int = PAPER_CHUNK_OVERLAP):
         if overlap >= chunk_size:
             raise ValueError("overlap must be smaller than chunk_size")
@@ -13,6 +15,7 @@ class OverlapChunker(ChunkingStrategy):
         self.overlap = overlap
 
     def chunk(self, text: str, source_path: str) -> List[DocumentChunk]:
+        """Chunk text into overlapping segments, each linked to the source path."""
         text = text[:PAPER_MAX_CHARS]
         chunks: list[DocumentChunk] = []
         start = 0
