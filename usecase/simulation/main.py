@@ -12,7 +12,7 @@ Q / ESC     quit
 
 import sys, os
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT         = os.path.dirname(os.path.abspath(__file__))
 USECASE_ROOT = os.path.dirname(ROOT)
 PROJECT_ROOT = os.path.dirname(USECASE_ROOT)
 
@@ -43,25 +43,24 @@ from renderer import (
     draw_panel,
 )
 
-# Speed settings  
-
 DEFAULT_STEPS_PER_SECOND = 8.0
 MIN_STEPS_PER_SECOND     = 1.0
 MAX_STEPS_PER_SECOND     = 30.0
 
-# Layout 
+#  Layout  
 
-GAP         = 28
-DASH_GAP    = 16
-MARGIN      = 20
-GRID_OY     = 70
+GAP          = 28
+DASH_GAP     = 16
+MARGIN       = 20
+GRID_OY      = 70
 DASH_PANEL_H = 335
-FPS         = 60
+FPS          = 60
 
 WIN_W = MARGIN * 2 + GRID_PX * 2 + GAP + DASH_GAP + PANEL_W
 WIN_H = GRID_OY + DASH_PANEL_H * 2 + DASH_GAP + 42
 
 ASSET_DIR = os.path.join(USECASE_ROOT, "assets")
+
 # Key sets  
 
 FASTER_KEYS = {
@@ -75,10 +74,10 @@ SLOWER_KEYS = {
 }
 
 
-# Entry point  
+#  Entry point  
 
 def main():
-    # Training
+
     baseline = BaselineAgent(seed=0)
     metamo   = MetaMoAgent(seed=0)
     train_agent(baseline, "Baseline RL", TRAIN_EPISODES, seed_offset=0)
@@ -87,7 +86,6 @@ def main():
     bl_metrics = MetricsCollector("Baseline")
     mm_metrics = MetricsCollector("MetaMo")
 
-    # Pygame init
     pygame.init()
     try:
         pygame.mixer.init()
@@ -102,14 +100,13 @@ def main():
     font_xs    = pygame.font.Font(None, 17)
     font_lg    = pygame.font.Font(None, 40)
 
-    # Assets
     try:
         agent_img = pygame.image.load(
             os.path.join(ASSET_DIR, "cat.jpg")).convert_alpha()
     except Exception:
         agent_img = None
 
-    mineral_surf = None 
+    mineral_surf = None
 
     def _play_clank():
         try:
@@ -124,7 +121,6 @@ def main():
     except Exception:
         clank_fn = None
 
-    # Simulation state
     episode            = 1
     completed_episodes = 0
     env_bl, env_mm, s_bl, s_mm = new_episode(episode, baseline, metamo)
@@ -195,14 +191,14 @@ def main():
 
             # Auto-advance when both agents finish
             if done_bl and done_mm:
-                ep_log_bl.total_reward    = reward_bl
-                ep_log_bl.lava_steps      = lava_bl
-                ep_log_bl.total_steps     = env_bl.step_count
+                ep_log_bl.total_reward     = reward_bl
+                ep_log_bl.lava_steps       = lava_bl
+                ep_log_bl.total_steps      = env_bl.step_count
                 ep_log_bl.minerals_spawned = env_bl.minerals_spawned
 
-                ep_log_mm.total_reward    = reward_mm
-                ep_log_mm.lava_steps      = lava_mm
-                ep_log_mm.total_steps     = env_mm.step_count
+                ep_log_mm.total_reward     = reward_mm
+                ep_log_mm.lava_steps       = lava_mm
+                ep_log_mm.total_steps      = env_mm.step_count
                 ep_log_mm.minerals_spawned = env_mm.minerals_spawned
 
                 bl_metrics.add(ep_log_bl)
@@ -220,7 +216,7 @@ def main():
 
                 step_accum_ms = 0.0
 
-        # Draw
+        # Draw  
         screen.fill(BG)
 
         title = font_lg.render(
@@ -240,7 +236,6 @@ def main():
                   agent_img, mineral_surf, is_metamo=True,
                   mot_state=metamo.mot, alpha_dict=alpha_mm)
 
-        # Labels above grids
         bl_lbl = font_title.render("BASELINE RL", True, ACCENT_BL)
         mm_lbl = font_title.render("MetaMo RL",   True, ACCENT_ME)
         screen.blit(bl_lbl, (BL_GRID_X + GRID_PX // 2 - bl_lbl.get_width() // 2, GRID_OY - 25))
@@ -264,7 +259,6 @@ def main():
                    mot_state=metamo.mot, alpha_dict=alpha_mm,
                    eval_episodes=EVAL_EPISODES, max_steps_ep=MAX_STEPS_EP)
 
-        # Footer
         ctrl = font_xs.render(
             "SPACE: pause   R: reset   F/UP: faster   S/DOWN: slower   Q: quit"
             f"   |   Speed: {steps_per_second:.0f} steps/s"
@@ -281,20 +275,34 @@ def main():
 
         pygame.display.flip()
 
-    #  Final summary 
-    print("\n" + "=" * 55)
+    #Final summary  
+    print("\n" + "=" * 60)
+    print("  EVALUATION SUMMARY")
+    print("=" * 60)
+
     for mc in [bl_metrics, mm_metrics]:
         s = mc.summary()
         if not s:
             continue
-        print(f"\n[ {s['label']} ]  ({s['n_episodes']} episodes)")
-        print(f"  Completion rate : {s['completion_rate']['mean']:.3f} ± {s['completion_rate']['std']:.3f}")
-        print(f"  Lava rate       : {s['lava_rate']['mean']:.3f} ± {s['lava_rate']['std']:.3f}")
-        print(f"  SRV rate        : {s['srv_rate']['mean']:.3f} ± {s['srv_rate']['std']:.3f}")
-        print(f"  Unsafe-zone rate: {s['unsafe_rate']['mean']:.3f} ± {s['unsafe_rate']['std']:.3f}")
-        print(f"  Recovery time   : {s['recovery_time']['mean']:.1f} ± {s['recovery_time']['std']:.1f}")
-        print(f"  Total reward    : {s['total_reward']['mean']:.1f} ± {s['total_reward']['std']:.1f}")
-    print("=" * 55)
+        is_mm = "mot_srv_rate" in s
+
+        print(f"\n  [ {s['label']} ]  ({s['n_episodes']} episodes)")
+        print(f"  {'─'*50}")
+        print(f"  Completion rate  : {s['completion_rate']['mean']:.3f} ± {s['completion_rate']['std']:.3f}")
+        print(f"  Total reward     : {s['total_reward']['mean']:.1f} ± {s['total_reward']['std']:.1f}")
+        print(f"  Lava rate        : {s['lava_rate']['mean']:.3f} ± {s['lava_rate']['std']:.3f}")
+        print(f"  Unsafe-zone rate : {s['unsafe_rate']['mean']:.3f} ± {s['unsafe_rate']['std']:.3f}")
+        print(f"  Recovery time    : {s['recovery_time']['mean']:.1f} ± {s['recovery_time']['std']:.1f}")
+
+        if is_mm:
+            print(f"  Motivational SRV : {s['mot_srv_rate']['mean']:.3f} ± {s['mot_srv_rate']['std']:.3f}  [internal — not comparable to baseline SRV]")
+        else:
+            print(f"  Env SRV (proxy)  : {s['env_srv_rate']['mean']:.3f} ± {s['env_srv_rate']['std']:.3f}  [danger-band exposure]")
+
+    print("\n  NOTE: unsafe_rate is the fair cross-agent safety comparison.")
+    print("        MetaMo 'Motivational SRV' and Baseline 'Env SRV' measure")
+    print("        different things and should not be compared directly.")
+    print("=" * 60)
 
     pygame.quit()
     sys.exit()

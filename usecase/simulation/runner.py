@@ -12,6 +12,7 @@ mean_from_summary(summary, key)
 lava_cells_from_state(env_state)
 """
 
+
 import sys, os
 
 ROOT      = os.path.dirname(os.path.abspath(__file__))
@@ -23,24 +24,29 @@ for path in (REPO_ROOT, ROOT):
 from environment.gridworld import GridWorld, LAVA_CELLS, MAX_STEPS, MINERAL_SPAWN_BAND
 from agents.metamo_agent   import MetaMoAgent
 from metrics.collector     import EpisodeLog
-from metamo.core           import in_safe_region as mot_in_safe_region
-from core.config           import G_IND, G_TRANS
+from metamo.core           import (
+    in_safe_region   as mot_in_safe_region,
+    arousal          as mot_arousal,
+    safety_threshold as mot_safety_threshold,
+)
+from core.config import G_IND, G_TRANS
 
-# Constants  
-
-TRAIN_EPISODES = 50
-EVAL_EPISODES  = 50
-MAX_STEPS_EP   = MAX_STEPS
+ 
+TRAIN_EPISODES  = 50
+EVAL_EPISODES   = 50
+MAX_STEPS_EP    = MAX_STEPS
 DANGER_DISTANCE = MINERAL_SPAWN_BAND
 
-# Colours referenced by renderer (re-exported for convenience)
+EVAL_SEED_OFFSET = 1000
+
+
+
 RED   = (220,  60,  60)
 GREEN = ( 80, 200, 120)
 AMBER = (255, 180,  60)
 
 
-# Pure helpers  
-
+ 
 def lava_cells_from_state(env_state: dict) -> tuple:
     return tuple(env_state.get("lava_cells", LAVA_CELLS))
 
@@ -64,16 +70,27 @@ def mean_from_summary(summary: dict, key: str) -> float:
     return float(summary.get(key, {}).get("mean", 0.0))
 
 
-# Training  
+#   Training  
 
 def train_agent(agent, label: str, episodes: int, seed_offset: int = 0):
-    print(f"Training {label} for {episodes} episodes ...", end="", flush=True)
+    """
+    Train agent for `episodes` episodes with verbose per-episode output.
+    Prints one line per episode showing reward, minerals, lava hits, and epsilon.
+    """
+    agent_tag = "MM" if isinstance(agent, MetaMoAgent) else "BL"
+    print(f"\n{'─' * 60}")
+    print(f"  Training [{label}] for {episodes} episodes")
+    print(f"{'─' * 60}")
+    print(f"  {'Ep':>4}  {'Reward':>8}  {'Minerals':>9}  {'LavaHits':>9}  {'ε':>6}")
+    print(f"  {'─'*4}  {'─'*8}  {'─'*9}  {'─'*9}  {'─'*6}")
 
     for ep in range(episodes):
-        env   = GridWorld(seed=ep + seed_offset, max_steps=MAX_STEPS_EP)
-        state = env.reset()
+        env          = GridWorld(seed=ep + seed_offset, max_steps=MAX_STEPS_EP)
+        state        = env.reset()
         agent.reset_episode()
-        done  = False
+        done         = False
+        ep_reward    = 0.0
+        ep_lava_hits = 0
 
         for _ in range(MAX_STEPS_EP):
             if isinstance(agent, MetaMoAgent):
@@ -90,26 +107,37 @@ def train_agent(agent, label: str, episodes: int, seed_offset: int = 0):
             else:
                 agent.update(state, action, reward, next_state, done)
 
+            ep_reward += reward
+            if next_state["in_lava"]:
+                ep_lava_hits += 1
+
             state = next_state
             if done:
                 break
 
         agent.decay_epsilon()
-        if (ep + 1) % 50 == 0:
-            print(".", end="", flush=True)
 
-    print(" done.")
-    # Lower epsilon for evaluation
-    agent.epsilon = 0.12 if isinstance(agent, MetaMoAgent) else 0.05
+        print(
+            f"  {ep + 1:>4}  "
+            f"{ep_reward:>+8.1f}  "
+            f"{env.minerals_collected:>4}/{env.minerals_spawned:<4}  "
+            f"{ep_lava_hits:>9}  "
+            f"{agent.epsilon:>6.3f}"
+        )
+
+    agent.epsilon = 0.05
+    print(f"\n  ✓ Done — epsilon reset to {agent.epsilon:.2f} for evaluation\n")
 
 
-#   Episode lifecycle  
+#  Episode lifecycle  
 
 def new_episode(ep_num: int, baseline, metamo):
-    """Create two fresh envs with the same seed and reset both agents."""
-    seed    = ep_num * 7
-    env_bl  = GridWorld(seed=seed, max_steps=MAX_STEPS_EP)
-    env_mm  = GridWorld(seed=seed, max_steps=MAX_STEPS_EP)
+    """
+    Create two fresh envs with the same seed and reset both agents.
+    """
+    seed   = EVAL_SEED_OFFSET + ep_num  
+    env_bl = GridWorld(seed=seed, max_steps=MAX_STEPS_EP)
+    env_mm = GridWorld(seed=seed, max_steps=MAX_STEPS_EP)
     baseline.reset_episode()
     metamo.reset_episode()
     s_bl = env_bl.reset()
@@ -122,12 +150,16 @@ def clear_episode_logs():
     return False, False, 0.0, 0.0, 0, 0, EpisodeLog(), EpisodeLog()
 
 
-#   Per-step update helpers  
+# Per-step update helpers  
 
 def step_baseline(baseline, env_bl, s_bl, ep_log_bl, reward_bl, lava_bl, clank_fn=None):
-    """Advance baseline by one step. Returns (s_bl, reward_bl, lava_bl, done)."""
-    from metamo.core import arousal as mot_arousal, safety_threshold as mot_safety_threshold
+    """
+    Advance baseline by one step.
+    Returns (s_bl, reward_bl, lava_bl, done_bl).
 
+    SRV for baseline uses env_srv_flags (danger-band proxy).
+    unsafe_flags records the same signal and is the fair cross-agent comparison.
+    """
     a_bl = baseline.select_action(s_bl)
     ns_bl, r_bl, done_bl, info_bl = env_bl.step(a_bl)
     baseline.update(s_bl, a_bl, r_bl, ns_bl, done_bl)
@@ -147,21 +179,22 @@ def step_baseline(baseline, env_bl, s_bl, ep_log_bl, reward_bl, lava_bl, clank_f
     ep_log_bl.minerals_spawned = env_bl.minerals_spawned
     ep_log_bl.energy_log.append(ns_bl["energy"])
     ep_log_bl.survived         = ns_bl["energy"] > 0
+
     bl_unsafe = in_environment_unsafe_zone(ns_bl)
     ep_log_bl.unsafe_flags.append(bl_unsafe)
-    ep_log_bl.srv_flags.append(bl_unsafe)
+    ep_log_bl.env_srv_flags.append(bl_unsafe)
 
     return ns_bl, reward_bl, lava_bl, done_bl
 
 
 def step_metamo(metamo, env_mm, s_mm, ep_log_mm, reward_mm, lava_mm, clank_fn=None):
-    """Advance MetaMo by one step. Returns (s_mm, reward_mm, lava_mm, done, alpha_mm)."""
-    from metamo.core import (
-        arousal          as mot_arousal,
-        in_safe_region   as mot_in_safe_region,
-        safety_threshold as mot_safety_threshold,
-    )
+    """
+    Advance MetaMo by one step.
+    Returns (s_mm, reward_mm, lava_mm, done_mm, alpha_mm).
 
+    SRV for MetaMo uses mot_srv_flags (motivational internal signal).
+    unsafe_flags uses the same environmental definition as baseline for fair comparison.
+    """
     a_mm, alpha_mm = metamo.select_action(s_mm)
     ns_mm, r_mm, done_mm, info_mm = env_mm.step(a_mm)
     metamo.update(s_mm, a_mm, r_mm, ns_mm, done_mm, info_mm.get("event"), alpha_mm)
@@ -181,8 +214,11 @@ def step_metamo(metamo, env_mm, s_mm, ep_log_mm, reward_mm, lava_mm, clank_fn=No
     ep_log_mm.minerals_spawned = env_mm.minerals_spawned
     ep_log_mm.energy_log.append(ns_mm["energy"])
     ep_log_mm.survived         = ns_mm["energy"] > 0
+
     ep_log_mm.unsafe_flags.append(in_environment_unsafe_zone(ns_mm))
-    ep_log_mm.srv_flags.append(not mot_in_safe_region(metamo.mot))
+ 
+    ep_log_mm.mot_srv_flags.append(not mot_in_safe_region(metamo.mot))
+
     ep_log_mm.arousal_log.append(mot_arousal(metamo.mot))
     ep_log_mm.safety_log.append(mot_safety_threshold(metamo.mot))
     ep_log_mm.individuation_log.append(metamo.mot.G[G_IND])

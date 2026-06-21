@@ -20,11 +20,11 @@ class BaselineAgent:
     def __init__(
         self,
         grid_size:    int   = 10,
-        alpha:        float = 0.1,   
+        alpha:        float = 0.3,   
         gamma:        float = 0.95, 
         epsilon:      float = 1.0,   
         epsilon_min:  float = 0.05,
-        epsilon_decay:float = 0.995,
+        epsilon_decay:float = 0.97,
         seed:         int   = 42,
     ):
         self.grid_size     = grid_size

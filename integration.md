@@ -20,8 +20,8 @@ train for 50 episodes, then evaluate for 50 episodes simultaneously in the same 
 9. [Metrics & Collector](#9-metrics--collector)
 10. [Simulation Layer](#10-simulation-layer)
 11. [Hyperparameter Reference](#11-hyperparameter-reference)
-12. [Known Limitations](#12-currently-known-limitations)
- 
+12. [Known Limitations](#12-known-limitations)
+13. [Debug Notes & Critics](#13-debug-notes--critics)
 
 ---
 
@@ -34,7 +34,9 @@ usecase/
 │   └── metamo_agent.py         ← Q-learning + MetaMo motivational regulation
 │
 ├── assets/
-│   
+│   ├── cat.jpg                 ← Agent sprite
+│   └── clank.wav               ← Hazard sound effect
+│
 ├── environment/
 │   └── gridworld.py            ← 10×10 GridWorld (randomized lava, mixed mineral zones)
 │
@@ -60,8 +62,9 @@ usecase/
 ## 2. Setup & Running
 
 ```bash
+# From the repo root
 python -m venv venv
-source venv/bin/activate         
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 cd usecase/simulation
@@ -168,7 +171,7 @@ Q(s, a) ← Q(s, a) + α · [r + γ · max_a' Q(s', a') − Q(s, a)]
 - `td_error  = td_target − Q(s, a)`
 - Update: `Q(s, a) += α · td_error`
 
-### Key current limitation: the state is blind to danger
+### Key limitation: the state is blind to danger
 
 The baseline encodes `(agent_row, agent_col, mineral_row, mineral_col)` — nothing else. The following information is **completely absent** from its state space:
 
@@ -333,7 +336,7 @@ The penalty term discourages actions where the two perspectives strongly disagre
 
 ## 8. How `select_action` Works in the MetaMo Agent
 
-MetaMo's action selection is **not** "RL picks an action and MetaMo adjusts it." It is a single combined scoring function where Q-learning is one term among several.
+This is the most important section. MetaMo's action selection is **not** "RL picks an action and MetaMo adjusts it." It is a single combined scoring function where Q-learning is one term among several.
 
 ```python
 # Step 1 — perceive
@@ -501,9 +504,109 @@ To make MetaMo **more safety-conservative** — raise `G_IND` initial value, rai
 
 To make MetaMo **more reward-hungry** — raise `G_TRANS` initial value, raise `motivation_weight`, lower `risk_weight`.
 
-To make the **baseline stronger** — add `lava_distance` and `in_lava` to `_encode()` . 
+To make the **baseline stronger** — add `lava_distance` and `in_lava` to `_encode()` (see Limitations). This expands the state space but makes the Q-table lava-aware.
 
 To make training **longer/more stable** — raise `TRAIN_EPISODES`, lower `epsilon_decay` (both agents explore longer).
 
 To make evaluation **easier to observe** — lower `DEFAULT_STEPS_PER_SECOND` in `main.py`, or reduce `EVAL_EPISODES`.
- 
+
+---
+
+## 12. Known Limitations
+
+### Baseline: intentionally blind to danger
+
+The baseline's state encoding is `(agent_row, agent_col, mineral_row, mineral_col)`.
+
+What is **missing**:
+
+```
+lava_cells        ← agent has no map of where hazards are
+lava_distance     ← agent cannot tell how close danger is
+in_lava           ← agent only knows it was punished after the fact
+energy            ← agent has no notion of self-preservation
+arousal / safety  ← no internal signals at all
+```
+
+This means the baseline Q-table encodes the answer to: **"How do I reach minerals?"** It cannot encode the answer to: **"Should I avoid that cell?"** because lava position is not part of the state index.
+
+Two consequences:
+
+1. The agent cannot generalise across episodes when lava moves. A cell that was safe in episode 1 may be lava in episode 2, but the Q-table has no way to represent this distinction.
+2. The baseline will keep walking into lava that lies on the shortest path to a mineral, because the mineral-seeking policy it has learned has no concept of that path being dangerous.
+
+This is an intentional design choice to create a meaningful contrast with MetaMo, not an oversight. A more capable baseline could be built by adding `lava_distance` and `in_lava` to `_encode()`.
+
+### MetaMo: `srv_rate = 0.0` does not mean what it looks like
+
+The SRV rate for MetaMo checks `not in_safe_region(mot)`, which requires `G_IND < THETA_SAFE OR ||G|| > G_MAX`. Because `project_to_safe_region()` is called inside `transition_for_action()` on every step, the motivational state is actively clamped back into S after every action. A MetaMo SRV rate of 0.0 means the projection function is doing its job — not that the agent never enters danger. Look at `unsafe_rate` for the fair environmental comparison.
+
+### Both agents: recovery time ceiling
+
+If an agent never achieves 3 consecutive safe steps after a violation, `recovery_time()` returns `total_steps` (the episode length, currently 50). This inflates the metric and makes the standard deviation misleading. With only 3 evaluation episodes in the example output above, a single uncovered episode drives `RT = 50.0 ± 0.0` for MetaMo.
+
+### Metrics: SRV is not comparable across agents
+
+MetaMo SRV is a motivational metric (internal signal). Baseline SRV is an environmental proxy (danger-band exposure). They should not be directly compared. `unsafe_rate` is the fair common ground.
+
+### Episode count in the example output
+
+The example output shows only 3 completed episodes out of 50. This is because the user quit before evaluation finished. Run the full 50 episodes for stable statistics.
+
+---
+
+## 13. Debug Notes & Critics
+
+### Why MetaMo looks like it is "overfitting"
+
+From the example output:
+
+```
+[ Baseline ]  (3 episodes)
+  Completion rate : 0.222 ± 0.314
+  SRV rate        : 0.287 ± 0.229
+  Total reward    : 20.3  ± 82.8
+
+[ MetaMo ]  (3 episodes)
+  Completion rate : 0.810 ± 0.102
+  SRV rate        : 0.000 ± 0.000
+  Unsafe-zone rate: 0.493 ± 0.229
+  Total reward    : 536.0 ± 260.9
+```
+
+This is not overfitting in the classical ML sense. What you are seeing is a combination of four real problems:
+
+**Problem 1 — Only 3 episodes were completed.**
+3 episodes is too few to draw conclusions. The standard deviations on total reward (82.8 for baseline, 260.9 for MetaMo) show the estimates are extremely noisy. Run the full 50 evaluation episodes.
+
+**Problem 2 — `project_to_safe_region()` forces SRV = 0.0 by construction.**
+The MetaMo SRV metric checks `in_safe_region(mot)`. Because `transition_for_action()` calls `project_to_safe_region(target_state)` before blending, the motivational state is clamped into S on every step. SRV can only become non-zero in the window between `select_action` (where `mot` is read) and `update` (where `_pending_state` is committed). In practice this means `srv_flags` will almost always be False for MetaMo. This makes MetaMo SRV a near-useless metric. Use `unsafe_rate` instead.
+
+**Problem 3 — Unsafe-zone rate is high (0.493) despite SRV = 0.000.**
+This is the real signal. MetaMo is spending 49% of steps in the lava danger band even though its internal motivational state never reports a violation. The agent's motivational reasoning is signalling safety while the environment says danger. This indicates the `build_stimulus` → `build_consensus_states` → `project_to_safe_region` pipeline is keeping G_IND artificially high regardless of actual position. The agent feels safe internally even when it is not externally.
+
+**Problem 4 — `motivation_weight = 6.0` and `risk_weight = 4.0` may be too strong relative to Q-values early in training.**
+With only 50 training episodes on a 10×10 grid, the Q-table has sparse useful signal. The MetaMo scoring adds `6.0 × mot_scores` which can easily dominate the raw Q-values, especially early in evaluation when Q-values are still close to zero for many states. This makes MetaMo's performance depend heavily on the motivational heuristics (goal correlations, consensus scoring) rather than learned Q-values — which is why it performs so much better than the baseline despite the same number of training episodes.
+
+### Specific critics
+
+**Critic 1 — SRV metric conflation.**
+You are comparing two different things under the same label. Fix: rename MetaMo's metric to `motivational_srv_rate` and the baseline's to `environmental_srv_rate`. Make `unsafe_rate` the primary safety comparison for both.
+
+**Critic 2 — `step_baseline` imports unused names.**
+In `runner.py`, `step_baseline` does `from metamo.core import arousal as mot_arousal, safety_threshold as mot_safety_threshold` but never uses them. Remove that import.
+
+**Critic 3 — Recovery time on the baseline is dominated by the ceiling.**
+With `MAX_STEPS = 50` and the baseline rarely exiting the danger band once it enters, `recovery_time()` returns 50 for most episodes. This makes the metric look worse than it is — it is a ceiling artifact, not a meaningful measurement. Consider capping recovery time at a smaller value (e.g., 20 steps) and logging separately how often no recovery occurs.
+
+**Critic 4 — Training epsilon for MetaMo is set to 0.12 post-training.**
+The baseline drops to 0.05 post-training. MetaMo stays at 0.12. This means MetaMo takes more random actions during evaluation, which could inflate its mineral collection variance but also gives it more chance to stumble onto safe routes by luck. Consider aligning them, or at least documenting why they differ.
+
+**Critic 5 — Both agents train on seeds 0–49 and evaluate on seeds 7, 14, 21…**
+The evaluation seeds (`ep_num * 7`) overlap with some training seeds (seed 7, 14, 21, 28, 35, 42 were all seen during training). This means both agents may have already memorised Q-values for these specific lava layouts. A cleaner experiment would use a separate evaluation seed range (e.g. `1000 + ep_num`) that was never seen in training.
+
+**Critic 6 — `minerals_spawned` starts at 1 in EpisodeLog.**
+The default is `minerals_spawned: int = 1` to avoid division by zero. But if an episode ends before the environment spawns any mineral (very unlikely given reset spawns one), `completion_rate` returns `minerals_collected / 1` which is 0 — correct by coincidence. If you add more complex spawn logic later, this default could silently produce wrong rates. Better to handle the zero case explicitly in `completion_rate()`.
+
+**Critic 7 — The comparison is not fully fair because the state space differs.**
+MetaMo sees the full `env_state` dict including `lava_cells`, `lava_distance`, `in_lava`. The baseline sees the same dict but ignores most of it. The headline claim "MetaMo beats the baseline" partially reflects that MetaMo has access to information the baseline deliberately throws away. This is intentional for the paper's thesis, but should be stated explicitly in any writeup: you are comparing an informed motivational agent against a deliberately blind one.
