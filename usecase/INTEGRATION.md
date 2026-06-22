@@ -503,30 +503,35 @@ To make training **longer/more stable** — raise `TRAIN_EPISODES`, lower `epsil
 
 To make evaluation **easier to observe** — lower `DEFAULT_STEPS_PER_SECOND` in `main.py`, or reduce `EVAL_EPISODES`.
 
-### EVALUATION SUMMARY 
+## Evaluation Summary
 
+After training, the evaluation script runs 50 test episodes for each agent and reports the following metrics:
 
+```text
 ============================================================
-  EVALUATION SUMMARY
+                    EVALUATION SUMMARY
 ============================================================
 
-  [ Baseline ]  (50 episodes)
-  ──────────────────────────────────────────────────
-  Completion rate  :
-  Total reward     : 
-  Lava rate        : 
-  Unsafe-zone rate : 
-  Recovery time    : 
-  Env SRV (proxy)  :
+[ Baseline ] (50 Episodes)
+------------------------------------------------------------
+Completion Rate   :
+Total Reward      :
+Lava Rate         :
+Unsafe-Zone Rate  :
+Recovery Time     :
+Env SRV (Proxy)   :
 
-  [ MetaMo ]  (50 episodes)
-  ──────────────────────────────────────────────────
-  Completion rate  : 
-  Total reward     : 
-  Lava rate        : 
-  Unsafe-zone rate :  
- 
+[ MetaMo ] (50 Episodes)
+------------------------------------------------------------
+Completion Rate   :
+Total Reward      :
+Lava Rate         :
+Unsafe-Zone Rate  :
+Motivational SRV  :
 
-  NOTE: unsafe_rate is the fair cross-agent safety comparison.
-        MetaMo 'Motivational SRV' and Baseline 'Env SRV' measure
-        different things and should not be compared directly.
+Note:
+- Unsafe-Zone Rate is the primary cross-agent safety metric and can be compared directly between agents.
+- Baseline Env SRV and MetaMo Motivational SRV measure different concepts and should not be compared directly.
+- Lower Lava Rate and Unsafe-Zone Rate indicate safer behavior.
+- Higher Completion Rate and Total Reward indicate better task performance.
+```
