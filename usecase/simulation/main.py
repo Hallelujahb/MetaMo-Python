@@ -36,6 +36,7 @@ from runner import (
     step_baseline,
     step_metamo,
 )
+from plots import save_evaluation_plots
 from renderer import (
     CELL, GRID_PX, PANEL_W,
     BG, DIM_TEXT, TEXT_COLOR, ACCENT_BL, ACCENT_ME,
@@ -132,6 +133,8 @@ def main():
     step_accum_ms       = 0.0
     paused              = False
     evaluation_complete = False
+    plots_saved         = False
+    saved_plot_paths    = []
 
     # Main loop  
     running = True
@@ -159,6 +162,8 @@ def main():
                         completed_episodes = 0
                         episode = 1
                     evaluation_complete = False
+                    plots_saved         = False
+                    saved_plot_paths    = []
                     paused              = False
                     step_accum_ms       = 0.0
                     env_bl, env_mm, s_bl, s_mm = new_episode(episode, baseline, metamo)
@@ -208,6 +213,17 @@ def main():
                 if completed_episodes >= EVAL_EPISODES:
                     evaluation_complete = True
                     paused = True
+                    if not plots_saved:
+                        plot_dir = os.path.join(PROJECT_ROOT, "plot")
+                        try:
+                            saved_plot_paths = save_evaluation_plots(
+                                bl_metrics, mm_metrics, plot_dir)
+                            plots_saved = True
+                            print("\nSaved evaluation plots:")
+                            for plot_path in saved_plot_paths:
+                                print(f"  {plot_path}")
+                        except Exception as exc:
+                            print(f"\nCould not save evaluation plots: {exc}")
                 else:
                     episode = completed_episodes + 1
                     env_bl, env_mm, s_bl, s_mm = new_episode(episode, baseline, metamo)
@@ -294,8 +310,10 @@ def main():
         print(f"  Unsafe-zone rate : {s['unsafe_rate']['mean']:.3f} ± {s['unsafe_rate']['std']:.3f}")
         print(f"  Recovery time    : {s['recovery_time']['mean']:.1f} ± {s['recovery_time']['std']:.1f}")
 
-         
-        print(f"  Env SRV (proxy)  : {s['env_srv_rate']['mean']:.3f} ± {s['env_srv_rate']['std']:.3f}  [danger-band exposure]")
+        if is_mm:
+            print(f"  Mot SRV          : {s['mot_srv_rate']['mean']:.3f} ± {s['mot_srv_rate']['std']:.3f}  [motivational signal]")
+        else:
+            print(f"  Env SRV (proxy)  : {s['env_srv_rate']['mean']:.3f} ± {s['env_srv_rate']['std']:.3f}  [danger-band exposure]")
 
      
 
