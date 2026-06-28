@@ -29,6 +29,10 @@ from metamo.core           import (
     arousal          as mot_arousal,
     safety_threshold as mot_safety_threshold,
 )
+from dynamics.stability import (
+    boundary_pressure as mot_boundary_pressure,
+    is_in_boundary_band as mot_in_boundary_band,
+)
 from core.config import G_IND, G_TRANS
 
  
@@ -218,6 +222,8 @@ def step_metamo(metamo, env_mm, s_mm, ep_log_mm, reward_mm, lava_mm, clank_fn=No
     ep_log_mm.unsafe_flags.append(in_environment_unsafe_zone(ns_mm))
  
     ep_log_mm.mot_srv_flags.append(not mot_in_safe_region(metamo.mot))
+    ep_log_mm.mot_boundary_flags.append(mot_in_boundary_band(metamo.mot))
+    ep_log_mm.mot_pressure_log.append(mot_boundary_pressure(metamo.mot))
 
     ep_log_mm.arousal_log.append(mot_arousal(metamo.mot))
     ep_log_mm.safety_log.append(mot_safety_threshold(metamo.mot))

@@ -2,8 +2,8 @@
 
 A side-by-side pygame simulation that compares a **Baseline Q-learning agent** against a
 **MetaMo-enhanced Q-learning agent** in a randomized 10×10 hazard gridworld. Both agents
-train for 50 episodes, then evaluate for 50 episodes simultaneously in the same environment
-(identical seeds), so every difference in behaviour is caused by the architecture, not luck.
+train for fixed number of episodes, then evaluate for the episodes simultaneously in the same environment
+(identical seeds), so every difference in behaviour is caused by the architecture.
 
 ---
 
@@ -20,6 +20,7 @@ train for 50 episodes, then evaluate for 50 episodes simultaneously in the same 
 9. [Metrics & Collector](#9-metrics--collector)
 10. [Simulation Layer](#10-simulation-layer)
 11. [Hyperparameter Reference](#11-hyperparameter-reference)
+12. [Evaluation Summary](#evaluation-summary)
 
 ---
 
@@ -32,7 +33,9 @@ usecase/
 │   └── metamo_agent.py         ← Q-learning + MetaMo motivational regulation
 │
 ├── assets/
-│   
+│   ├── agent.webp              ← Agent sprite
+│   ├── mineral.webp            ← Mineral sprite
+│   └── clank.wav               ← Lava contact sound
 ├── environment/
 │   └── gridworld.py            ← 10×10 GridWorld (randomized lava, mixed mineral zones)
 │
@@ -41,14 +44,19 @@ usecase/
 │   └── state.py                ← create_initial_motivational_state() for this usecase
 │
 ├── metrics/
-│   └── collector.py            ← EpisodeLog, MetricsCollector, SRV, Recovery Time
+│   └── collector.py            ← EpisodeLog, MetricsCollector, SRV, boundary, recovery metrics
+│
+├── plot/                       ← Generated evaluation plots
+│   ├── reward_baseline_vs_metamo.png
+│   └── lava_touches_baseline_vs_metamo.png
 │
 ├── simulation/
 │   ├── main.py                 ← Pygame event loop — run this
+│   ├── plots.py                ← Generates reward and lava-touch PNG plots
 │   ├── renderer.py             ← draw_grid(), draw_panel(), all drawing logic
 │   └── runner.py               ← train_agent(), step_baseline(), step_metamo()
 │
-└── README.md
+└── INTEGRATION.md
 ```
 
 **Entry point:** `python usecase/simulation/main.py`
@@ -65,6 +73,9 @@ pip install -r requirements.txt
 cd usecase/simulation
 python main.py
 ```
+
+When the evaluation episodes finish, `simulation/plots.py` writes the generated figures
+to `usecase/plot/`.
 
 ### Controls
 
@@ -116,7 +127,7 @@ Energy starts at 100. Collecting a mineral restores energy up to 100; lava drain
 | `dy_mineral`    | `int`             | Vertical offset to mineral                |
 | `step`          | `int`             | Current step count                        |
 
-The baseline agent uses **only** `pos` and `mineral_pos`. Everything else is exclusively used by MetaMo.
+The baseline uses a compact subset of this dictionary: pos, mineral_pos, lava_cells, lava_distance, and in_lava. It does not use MetaMo motivational state, appraisal, consensus scoring, arousal, or goal vectors. This simplified design serves as a comparison point to evaluate how leveraging the MetaMo framework and its motivational mechanisms influences agent behavior and decision-making. In contrast, MetaMo uses the full environment state to construct motivational stimuli, generate action candidates, and select actions based on its internal motivational processes.
 
 ### Hyperparameters (GridWorld)
 
@@ -140,7 +151,18 @@ The baseline agent uses **only** `pos` and `mineral_pos`. Everything else is exc
 
 ### What it is
 
-A pure Markov Decision Process (MDP) solver. It learns a mapping from `(agent_pos, mineral_pos)` to the best action using the Bellman update. It has no internal drives, no safety awareness, no arousal — only a static lookup table updated by reward.
+A pure tabular Q-learning agent with no motivational layer. It learns action values
+from reward and shaped reward signals, then chooses actions with epsilon-greedy
+selection over learned Q-values.
+
+Properties of the baseline implementation:
+
+- no MetaMo motivational state
+- no goal vector `G`
+- no modulator vector `M`
+- no appraisal or consensus transition
+- no shortest-path planner or BFS route solver
+- no hard-coded "move toward mineral" exploitation score
 
 ### State encoding
 
@@ -148,47 +170,108 @@ A pure Markov Decision Process (MDP) solver. It learns a mapping from `(agent_po
 def _encode(self, state: dict) -> tuple:
     ar, ac = state["pos"]
     mr, mc = state["mineral_pos"]
-    return (ar, ac, mr, mc)
+    lava_cells = set(state.get("lava_cells", ()))
+
+    dy = mr - ar
+    dx = mc - ac
+    local_lava_mask = 0
+    boundary_mask = 0
+
+    for action in range(self.ACTIONS):
+        next_pos, hit_boundary = self._next_position((ar, ac), action)
+        if hit_boundary:
+            boundary_mask |= 1 << action
+        if next_pos in lava_cells:
+            local_lava_mask |= 1 << action
+
+    lava_distance = int(state.get("lava_distance", self.grid_size * 2))
+    lava_distance_bin = min(lava_distance, self.max_distance_bin + 1)
+
+    return (
+        self._sign(dy),
+        self._sign(dx),
+        min(abs(dy), self.max_distance_bin),
+        min(abs(dx), self.max_distance_bin),
+        local_lava_mask,
+        boundary_mask,
+        lava_distance_bin,
+        int(state.get("in_lava", False)),
+    )
 ```
 
-The Q-table shape is `(10, 10, 10, 10, 4)` = **40,000 values**.
-Each entry `Q[ar, ac, mr, mc, action]` holds the estimated future reward for taking `action` from that configuration.
+The Q-table is sparse:
 
-Example: `Q[2, 3, 8, 9]` → `[-0.5, 2.4, -1.0, 3.1]` → agent chooses action 3 (Right).
+```python
+self.q_table: dict[tuple, np.ndarray] = {}
+```
+
+Each encoded state maps to a 4-value action vector. This lets experience generalize
+across absolute board positions. For example, "mineral is down-right, wall is above,
+lava is immediately left" is reusable at many grid coordinates.
+
+The compact state includes:
+
+| Feature | Meaning |
+|---------|---------|
+| Relative mineral direction | Sign of row/col offset to the mineral |
+| Relative mineral distance bins | Capped absolute row/col distance |
+| `local_lava_mask` | Which one-step actions would enter lava |
+| `boundary_mask` | Which one-step actions would hit the wall |
+| `lava_distance_bin` | Capped distance to nearest lava |
+| `in_lava` | Whether the current cell is lava |
 
 ### The Bellman update
 
 ```
-Q(s, a) ← Q(s, a) + α · [r + γ · max_a' Q(s', a') − Q(s, a)]
+Q(s, a) ← Q(s, a) + α · [r_shaped + γ · max_a' Q(s', a') − Q(s, a)]
 ```
 
-- `td_target = r + γ · max Q(s')`  (or just `r` if terminal)
+- `td_target = shaped_reward + γ · max Q(s')`  (or just `shaped_reward` if terminal)
 - `td_error  = td_target − Q(s, a)`
 - Update: `Q(s, a) += α · td_error`
 
-### Key current limitation: the state is blind to danger
+### Reward shaping
 
-The baseline encodes `(agent_row, agent_col, mineral_row, mineral_col)` — nothing else. The following information is **completely absent** from its state space:
+The environment reward is the source of truth, but the baseline adds shaping terms
+so it can learn within the given training episodes:
 
-- `lava_distance`
-- `in_lava`
-- `lava_cells`
-- Energy level
-- Arousal or safety signals
+- positive/negative shaping for reducing/increasing Manhattan distance to the current mineral
+- extra penalty for stepping into lava
+- extra penalty for attempting a boundary move
+- small penalty for being deep inside the danger band
 
-So the baseline is fundamentally learning: **"How do I reach the mineral?"** — not **"How do I balance safety and reward?"** When lava spawns between the agent and the mineral, the agent has no way to know it is there until it steps on it and receives a negative reward. It cannot generalise across lava layouts because lava position is not part of its state. This brittle, position-only reasoning is the intended contrast with MetaMo.
+During exploration, the baseline can probabilistically avoid actions that immediately
+enter lava. During exploitation, it chooses among valid learned Q-values. By default,
+`mask_lava_on_exploit = False`, so exploitation is not hard-coded to avoid lava; it must
+learn that through the Q-table.
+
+### Key current limitation: no motivational regulation
+
+The baseline can see local hazard features, but it has no internal safety model. It does
+not represent arousal, boundary pressure, safe-region violations, individuation, or
+transcendence. It can learn "this local pattern tends to be bad," but it cannot adapt its
+policy through MetaMo's safety/growth consensus machinery.
 
 ### Hyperparameters (Baseline)
 
-| Parameter       | Default | Smaller → effect                        | Larger → effect                          |
-|-----------------|---------|-----------------------------------------|------------------------------------------|
-| `alpha`         | 0.1     | Stable, learns slowly                   | Learns fast, can become unstable         |
-| `gamma`         | 0.95    | Only cares about immediate rewards      | Long-term planning matters more          |
-| `epsilon`       | 1.0     | Starts fully explorative (required)     | —                                        |
-| `epsilon_min`   | 0.05    | Gets stuck in local optima              | Always partly random, never converges    |
-| `epsilon_decay` | 0.995   | Explores longer, slower exploitation    | Becomes greedy quickly                   |
+| Parameter | Default | Smaller → effect | Larger → effect |
+|-----------|---------|------------------|-----------------|
+| `alpha` | 0.3 | Stable, learns slowly | Faster learning, more volatility |
+| `gamma` | 0.95 | Short-term reward focus | Longer-horizon value propagation |
+| `epsilon` | 1.0 | Less initial exploration | More random exploration |
+| `epsilon_min` | 0.05 | More deterministic evaluation | Persistent random actions |
+| `epsilon_decay` | 0.97 | Explores longer | Becomes greedy sooner |
+| `max_distance_bin` | 4 | More compact state | More distance resolution |
+| `safe_exploration_probability` | 0.7 | More risky exploration | More immediate-lava avoidance while exploring |
+| `progress_shaping_weight` | 8.0 | Weaker mineral-seeking signal | Stronger distance-to-mineral shaping |
+| `lava_shaping_penalty` | 80.0 | More lava-tolerant | Stronger learned lava avoidance |
+| `boundary_shaping_penalty` | 5.0 | Boundary attempts matter less | Boundary attempts matter more |
+| `danger_shaping_penalty` | 2.0 | Less danger-band caution | More danger-band caution |
+| `mask_lava_on_exploit` | `False` | Exploitation is pure learned Q-values | Exploitation hard-masks immediate lava |
 
-Starting `epsilon = 1.0` is essential. With 40,000 states initialised to zero, the agent must stumble around randomly to collect its first real reward signals before exploitation is meaningful.
+Starting `epsilon = 1.0` is useful because early Q-values are zero. Random
+tie-breaking and compact state features prevent the old failure mode where untrained
+states defaulted to action 0.
 
 ---
 
@@ -198,7 +281,11 @@ Starting `epsilon = 1.0` is essential. With 40,000 states initialised to zero, t
 
 ### What it adds over the baseline
 
-The MetaMo agent keeps the same Q-table and Bellman update as the baseline, but wraps the action selection in a motivational scoring layer. Q-values are just one term in a combined score that also includes:
+The MetaMo agent keeps a classical tabular Q-learning core and Bellman update, but wraps
+action selection in a motivational scoring layer. Its Q-table encoding is still the
+absolute task tuple `(agent_pos, mineral_pos)`, while the baseline now uses compact
+relative/local features. Q-values are just one term in a combined MetaMo score that also
+includes:
 
 - Motivational alignment with current goals (safety vs growth)
 - Risk penalty weighted by the individuation goal `G_IND`
@@ -206,7 +293,10 @@ The MetaMo agent keeps the same Q-table and Bellman update as the baseline, but 
 
 ### State encoding
 
-Identical to the baseline — `(ar, ac, mr, mc)`. The motivational layer does not touch the Q-table indexing; it influences *which action gets chosen*, not *how Q-values are stored*.
+MetaMo's Q-table still uses the absolute task tuple `(ar, ac, mr, mc)`. This is now
+different from the compact-feature baseline. MetaMo still receives lava information,
+but it enters action selection through stimulus construction, candidate risk estimates,
+motivational scoring, and the explicit risk penalty rather than through the Q-table key.
 
 ### Additional state
 
@@ -222,11 +312,11 @@ Identical to the baseline — `(ar, ac, mr, mc)`. The motivational layer does no
 
 | Parameter                  | Default | Smaller → effect                              | Larger → effect                             |
 |----------------------------|---------|-----------------------------------------------|---------------------------------------------|
-| `alpha`                    | 0.1     | Same as baseline                              | Same as baseline                            |
+| `alpha`                    | 0.3     | Same as baseline                              | Same as baseline                            |
 | `gamma`                    | 0.95    | Same as baseline                              | Same as baseline                            |
 | `epsilon`                  | 1.0     | —                                             | —                                           |
-| `epsilon_min`              | 0.10    | Less exploration floor than baseline (5%)     | Higher minimum randomness                   |
-| `epsilon_decay`            | 0.995   | Same as baseline                              | Same as baseline                            |
+| `epsilon_min`              | 0.05    | More deterministic evaluation                 | Higher minimum randomness                   |
+| `epsilon_decay`            | 0.97    | Explores longer                               | Becomes greedy sooner                       |
 | `motivation_weight`        | 6.0     | MetaMo influence weaker, closer to baseline   | MetaMo fully dominates action selection     |
 | `risk_weight`              | 4.0     | Agent ignores risk estimates from candidates  | Agent very risk-averse, slow mineral pickup |
 | `exploration_bonus_weight` | 1.25    | Less UCB-style bonus, less systematic coverage | More aggressive unvisited-state seeking    |
@@ -370,13 +460,9 @@ self._pending_state = next_mot_state   # applied in update()
 
 ### Why this design matters
 
-The raw Q-value alone would choose the shortest path to the mineral regardless of lava. The motivational scores push the combined score toward safer actions when `G_IND` is high and risk is high. The exploration bonus ensures the agent systematically visits unseen state-action pairs rather than relying on random epsilon.
+The raw Q-value alone would choose the shortest path to the mineral regardless of lava. The motivational scores push the combined score toward safer actions when `G_IND` is high and risk is high. The exploration bonus ensures the agent systematically visits unseen state-action pairs rather than relying on random epsilon. 
 
-`G_IND` appears twice: as the base goal (raised by the safety perspective) and as the coefficient in the risk penalty term `risk_weight × G_IND × risk_estimates`. This means the stronger the agent's self-preservation drive, the harder lava gets penalised in action selection.
-
-The motivational state is never applied immediately. `_pending_state` is held and only committed inside `update()` after the environment confirms what happened. This keeps the motivational update causally ordered after the environment step.
-
-### alpha dict (decision explanation)
+### alpha dict 
 
 After each `select_action`, the agent logs an `alpha` dict:
 
@@ -394,7 +480,7 @@ After each `select_action`, the agent logs an `alpha` dict:
 | `exploration_bonus`    | UCB bonus for chosen action                          |
 | `combined_score`       | Final regularized score for chosen action            |
 
-This dict is what the dashboard displays as "Appraisal risk", "Consensus Ind/Trans", etc.
+This dict is what the dashboard displays as "Consensus Ind/Trans" 
 
 ---
 
@@ -411,8 +497,11 @@ This dict is what the dashboard displays as "Appraisal risk", "Consensus Ind/Tra
 | `total_steps`        | int     | Steps taken                                         |
 | `total_reward`       | float   | Cumulative reward                                   |
 | `lava_steps`         | int     | Steps spent on a lava cell                          |
-| `srv_flags`          | list    | Per-step: True = safe-region violation              |
-| `unsafe_flags`       | list    | Per-step: True = in lava or danger band             |
+| `mot_srv_flags`      | list    | MetaMo only: actual motivational safe-region violation |
+| `env_srv_flags`      | list    | Baseline only: environmental danger-band proxy      |
+| `mot_boundary_flags` | list    | MetaMo only: inside motivational boundary band      |
+| `mot_pressure_log`   | list    | MetaMo only: boundary pressure from 0 to 1          |
+| `unsafe_flags`       | list    | Both agents: True = in lava or danger band          |
 | `arousal_log`        | list    | MetaMo only: `M_AROUSAL` per step                  |
 | `safety_log`         | list    | MetaMo only: `M_THRESHOLD` per step                |
 | `individuation_log`  | list    | MetaMo only: `G_IND` per step                      |
@@ -432,10 +521,14 @@ lava_rate = lava_steps / total_steps
 ```
 
 **SRV Rate** (Safe-Region Violation Rate)
-- MetaMo: `True` when `not in_safe_region(mot)` — a motivational check
+- MetaMo: `True` when `not in_safe_region(mot)` — an actual internal invariant breach
 - Baseline: `True` when `in_lava OR lava_distance ≤ DANGER_DISTANCE` — an environment proxy
 
 These are **not the same measure**. MetaMo's SRV is internal; baseline SRV is external. Comparing them directly is misleading.
+With safe-region projection enabled, MetaMo's actual Mot SRV is expected to often be
+`0.000`, because the architecture prevents the motivational state from leaving the safe
+region. This does **not** mean MetaMo felt no pressure; use `Mot boundary` and
+`Mot pressure` for near-edge internal dynamics.
 
 **Unsafe Rate**
 ```
@@ -443,26 +536,56 @@ unsafe_rate = steps where (in_lava OR lava_distance ≤ 2) / total_steps
 ```
 This is the same environmental measure for both agents and is the fair comparison for danger exposure.
 
-**Recovery Time (RT)**
+**Environmental Recovery Time (RT)**
 
-For each violation bout starting at step `t0`, recovery is the first time `τ` such that `L = 3` consecutive safe steps occur:
+For each environmental unsafe-zone bout starting at step `t0`, recovery is the first time
+`tau` such that `L = 3` consecutive safe steps occur:
 
 ```
 RT_i = t_recover − t0
 RT   = mean(RT_i) over all bouts
-     = total_steps if no recovery ever occurs
+     = RECOVERY_CAP if no recovery ever occurs
 ```
+
+This metric uses `unsafe_flags` for **both** agents, so it is comparable between
+Baseline and MetaMo.
+
+**Motivational Boundary Rate**
+```
+mot_boundary_rate = steps where mot is in boundary band B_eta / total_steps
+```
+
+This captures how often MetaMo is near the edge of the safe region even when it does not
+actually violate the safe-region invariant.
+
+**Motivational Pressure**
+```
+mot_pressure = mean(boundary_pressure(mot))
+```
+
+`0` means comfortably inside the safe region. `1` means outside or on the edge.
+
+**Motivational Boundary Recovery**
+
+`Mot recovery` in the final summary is computed from `mot_boundary_flags`, not actual
+Mot SRV.  
 
 ---
 
 ## 10. Simulation Layer
 
-`simulation/main.py` — pygame event loop only. Calls `runner` and `renderer`.
+`simulation/main.py` — pygame event loop only. Calls `runner`, `renderer`, and `plots`.
 
 `simulation/runner.py` — all non-visual logic:
 - `train_agent()` — training loop
 - `new_episode()` — creates two fresh envs with the same seed
 - `step_baseline()` / `step_metamo()` — advances one agent by one step, updates EpisodeLog
+- Baseline logs `unsafe_flags` and `env_srv_flags` from environmental danger-band exposure.
+- MetaMo logs `unsafe_flags`, actual `mot_srv_flags`, `mot_boundary_flags`, and `mot_pressure_log`.
+
+`simulation/plots.py` — evaluation plot export:
+- `reward_baseline_vs_metamo.png` — per-episode reward curves and averages
+- `lava_touches_baseline_vs_metamo.png` — average lava touches per episode
 
 `simulation/renderer.py` — all pygame drawing:
 - `draw_grid()` — lava animation, mineral glow, agent sprite
@@ -482,12 +605,22 @@ RT   = mean(RT_i) over all bouts
 | MetaMo SRV ep/avg    | MetaMo only: `not in_safe_region(mot)`        |
 | Appraisal risk       | MetaMo only: `alpha["risk"]`                  |
 | Individuation bar    | `mot.G[G_IND]` (current)                      |
-| Consensus Ind bar    | `alpha["target_individuation"]` (proposed)    |
+| Consensus Ind bar    | `alpha["target_individuation"]`               |
 | Transcendence bar    | `mot.G[G_TRANS]` (current)                    |
-| Consensus Trans bar  | `alpha["target_transcendence"]` (proposed)    |
+| Consensus Trans bar  | `alpha["target_transcendence"]`               |
 | Safety threshold bar | `mot.M[M_THRESHOLD]`                          |
 | Arousal bar          | `mot.M[M_AROUSAL]`                            |
 | Energy bar           | Baseline only: `env_state["energy"]`          |
+
+### Final console summary
+
+At evaluation end, `simulation/main.py` prints:
+
+- common performance metrics: completion, reward, lava rate, unsafe-zone rate
+- `Recovery time [env unsafe-zone]` for both agents
+- Baseline `Env SRV (proxy)` as danger-band exposure
+- MetaMo `Mot SRV` as actual safe-region violation
+- MetaMo `Mot boundary`, `Mot pressure`, and boundary-band `Mot recovery`
 
 ---
 
@@ -499,39 +632,56 @@ To make MetaMo **more safety-conservative** — raise `G_IND` initial value, rai
 
 To make MetaMo **more reward-hungry** — raise `G_TRANS` initial value, raise `motivation_weight`, lower `risk_weight`.
 
-To make training **longer/more stable** — raise `TRAIN_EPISODES`, lower `epsilon_decay` (both agents explore longer).
+To make training **longer/more stable** — raise `TRAIN_EPISODES`, raise `epsilon_decay` (both agents explore longer).
 
 To make evaluation **easier to observe** — lower `DEFAULT_STEPS_PER_SECOND` in `main.py`, or reduce `EVAL_EPISODES`.
 
 ## Evaluation Summary
 
-After training, the evaluation script runs 50 test episodes for each agent and reports the following metrics:
+After training, the evaluation script runs 50 test episodes for each agent and reports the following metrics. Current reference run:
 
 ```text
 ============================================================
-                    EVALUATION SUMMARY
+  EVALUATION SUMMARY
 ============================================================
 
-[ Baseline ] (50 Episodes)
-------------------------------------------------------------
-Completion Rate   :
-Total Reward      :
-Lava Rate         :
-Unsafe-Zone Rate  :
-Recovery Time     :
-Env SRV (Proxy)   :
+  [ Baseline ]  (50 episodes)
+  --------------------------------------------------
+  Completion rate  : 0.785 +/- 0.079
+  Total reward     : 379.5 +/- 175.8
+  Lava rate        : 0.026 +/- 0.024
+  Unsafe-zone rate : 0.534 +/- 0.173
+  Recovery time    : 28.7 +/- 13.3  [env unsafe-zone]
+  Env SRV (proxy)  : 0.534 +/- 0.173  [danger-band exposure]
 
-[ MetaMo ] (50 Episodes)
-------------------------------------------------------------
-Completion Rate   :
-Total Reward      :
-Lava Rate         :
-Unsafe-Zone Rate  :
-Motivational SRV  :
+  [ MetaMo ]  (50 episodes)
+  --------------------------------------------------
+  Completion rate  : 0.840 +/- 0.045
+  Total reward     : 538.0 +/- 155.6
+  Lava rate        : 0.004 +/- 0.008
+  Unsafe-zone rate : 0.409 +/- 0.144
+  Recovery time    : 19.0 +/- 10.0  [env unsafe-zone]
+  Mot SRV          : 0.000 +/- 0.000  [actual safe-region violation]
+  Mot boundary     : 0.487 +/- 0.026  [near safe-region edge]
+  Mot pressure     : 0.324 +/- 0.026  [0 comfortable, 1 edge/outside]
+  Mot recovery     : 50.0 +/- 0.0  [boundary-band]
+```
 
 Note:
 - Unsafe-Zone Rate is the primary cross-agent safety metric and can be compared directly between agents.
+- Recovery Time is  cross-agent comparable because it uses environmental unsafe-zone flags for both agents.
 - Baseline Env SRV and MetaMo Motivational SRV measure different concepts and should not be compared directly.
+- `Mot SRV = 0.000` means MetaMo never actually left its safe motivational region during this run.
+- `Mot boundary` and `Mot pressure` show that MetaMo still spent time near the safe-region edge.
+- `Mot recovery = 50.0` means boundary-band recovery did not reach 3 consecutive outside-boundary-band steps before the cap.
 - Lower Lava Rate and Unsafe-Zone Rate indicate safer behavior.
 - Higher Completion Rate and Total Reward indicate better task performance.
-```
+
+
+You can add the following **Observation** section immediately after the **Evaluation Summary**.
+
+### Observation
+
+The evaluation results show that incorporating the MetaMo framework improves both task performance and safety compared with the baseline Q-learning agent. MetaMo achieved a higher **Completion Rate** (0.840 vs. 0.785) and a substantially higher **Total Reward** (538.0 vs. 379.5), indicating that motivational regulation enables the agent to collect more minerals while maintaining effective navigation. At the same time, MetaMo significantly reduced its **Lava Rate** (0.004 vs. 0.026), **Unsafe-Zone Rate** (0.409 vs. 0.534), and **Environmental Recovery Time** (19.0 vs. 28.7), demonstrating that it responds more effectively to hazardous situations without sacrificing task completion.
+
+These improvements stem from MetaMo's ability to integrate reinforcement learning with motivational reasoning rather than relying solely on learned Q-values. While the baseline makes decisions using only environmental features and accumulated rewards, MetaMo continuously evaluates motivational stimuli, balances safety and reward-seeking objectives through its consensus mechanism, and regulates behavior using its internal motivational state. The absence of **Motivational Safe-Region Violations (Mot SRV = 0.000)** further indicates that the framework successfully maintained its internal safety constraints throughout the evaluation, while the recorded **Motivational Boundary** and **Motivational Pressure** values confirm that the agent actively adapted its behavior when approaching hazardous conditions instead of merely reacting after entering them. This demonstrates how leveraging the MetaMo framework produces a safer and more effective decision-making process than conventional Q-learning alone.

@@ -61,6 +61,7 @@ WIN_W = MARGIN * 2 + GRID_PX * 2 + GAP + DASH_GAP + PANEL_W
 WIN_H = GRID_OY + DASH_PANEL_H * 2 + DASH_GAP + 42
 
 ASSET_DIR = os.path.join(USECASE_ROOT, "assets")
+PLOT_DIR  = os.path.join(USECASE_ROOT, "plot")
 
 # Key sets  
 
@@ -103,11 +104,12 @@ def main():
 
     try:
         agent_img = pygame.image.load(
-            os.path.join(ASSET_DIR, "cat.jpg")).convert_alpha()
+            os.path.join(ASSET_DIR, "agent.webp")).convert_alpha()
     except Exception:
         agent_img = None
 
-    mineral_surf = None
+    mineral_surf = pygame.image.load(
+            os.path.join(ASSET_DIR, "mineral.webp")).convert_alpha()
 
     def _play_clank():
         try:
@@ -214,10 +216,9 @@ def main():
                     evaluation_complete = True
                     paused = True
                     if not plots_saved:
-                        plot_dir = os.path.join(PROJECT_ROOT, "plot")
                         try:
                             saved_plot_paths = save_evaluation_plots(
-                                bl_metrics, mm_metrics, plot_dir)
+                                bl_metrics, mm_metrics, PLOT_DIR)
                             plots_saved = True
                             print("\nSaved evaluation plots:")
                             for plot_path in saved_plot_paths:
@@ -308,10 +309,16 @@ def main():
         print(f"  Total reward     : {s['total_reward']['mean']:.1f} ± {s['total_reward']['std']:.1f}")
         print(f"  Lava rate        : {s['lava_rate']['mean']:.3f} ± {s['lava_rate']['std']:.3f}")
         print(f"  Unsafe-zone rate : {s['unsafe_rate']['mean']:.3f} ± {s['unsafe_rate']['std']:.3f}")
-        print(f"  Recovery time    : {s['recovery_time']['mean']:.1f} ± {s['recovery_time']['std']:.1f}")
+        print(f"  Recovery time    : {s['recovery_time']['mean']:.1f} ± {s['recovery_time']['std']:.1f}  [env unsafe-zone]")
 
         if is_mm:
-            print(f"  Mot SRV          : {s['mot_srv_rate']['mean']:.3f} ± {s['mot_srv_rate']['std']:.3f}  [motivational signal]")
+            print(f"  Mot SRV          : {s['mot_srv_rate']['mean']:.3f} ± {s['mot_srv_rate']['std']:.3f}  [actual safe-region violation]")
+            if "mot_boundary_rate" in s:
+                print(f"  Mot boundary     : {s['mot_boundary_rate']['mean']:.3f} ± {s['mot_boundary_rate']['std']:.3f}  [near safe-region edge]")
+            if "mot_pressure" in s:
+                print(f"  Mot pressure     : {s['mot_pressure']['mean']:.3f} ± {s['mot_pressure']['std']:.3f}  [0 comfortable, 1 edge/outside]")
+            if "mot_boundary_recovery_time" in s:
+                print(f"  Mot recovery     : {s['mot_boundary_recovery_time']['mean']:.1f} ± {s['mot_boundary_recovery_time']['std']:.1f}  [boundary-band]")
         else:
             print(f"  Env SRV (proxy)  : {s['env_srv_rate']['mean']:.3f} ± {s['env_srv_rate']['std']:.3f}  [danger-band exposure]")
 

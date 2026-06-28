@@ -20,6 +20,8 @@ class EpisodeLog:
 
     mot_srv_flags:      list  = field(default_factory=list)   # MetaMo: not in_safe_region(mot)
     env_srv_flags:      list  = field(default_factory=list)   # Baseline: in lava-band proxy
+    mot_boundary_flags: list  = field(default_factory=list)   # MetaMo: inside boundary band B_eta
+    mot_pressure_log:   list  = field(default_factory=list)   # MetaMo: boundary pressure [0, 1]
 
     unsafe_flags:       list  = field(default_factory=list)   # both: in_lava OR lava_dist ≤ band
     arousal_log:        list  = field(default_factory=list)   # MetaMo only
@@ -64,17 +66,49 @@ class EpisodeLog:
             return 0.0
         return sum(self.unsafe_flags) / len(self.unsafe_flags)
 
+    def mot_boundary_rate(self) -> float:
+        """Fraction of MetaMo steps in the motivational boundary band."""
+        if not self.mot_boundary_flags:
+            return 0.0
+        return sum(self.mot_boundary_flags) / len(self.mot_boundary_flags)
+
+    def mean_mot_pressure(self) -> float:
+        """Mean MetaMo boundary pressure, where 0 is comfortable and 1 is outside/on edge."""
+        if not self.mot_pressure_log:
+            return 0.0
+        return float(np.mean(self.mot_pressure_log))
+
     def recovery_time(self) -> float:
         """
-        RT(t0) = min{τ ≥ 0 : RECOVERY_L consecutive safe steps after violation at t0}
+        Environmental recovery time from unsafe-zone exposure.
 
-        Uses whichever SRV flag list is populated.
+        RT(t0) = min{tau >= 0 : RECOVERY_L consecutive safe steps after unsafe-zone
+        exposure at t0}
+
+        Uses unsafe_flags for both agents, so the printed recovery metric is
+        comparable between Baseline and MetaMo.
+        """
+        return self._recovery_time_from_flags(self.unsafe_flags)
+
+    def mot_recovery_time(self) -> float:
+        """
+        Motivational recovery time from actual safe-region violations.
+
+        With projection enabled, this should usually be 0 because actual
+        safe-region violations are prevented by design.
+        """
+        return self._recovery_time_from_flags(self.mot_srv_flags)
+
+    def mot_boundary_recovery_time(self) -> float:
+        """Motivational recovery time from boundary-band pressure."""
+        return self._recovery_time_from_flags(self.mot_boundary_flags)
+
+    def _recovery_time_from_flags(self, flags: list) -> float:
+        """
         Returns average RT over all violation bouts, capped at RECOVERY_CAP.
         If no violations, returns 0.0.
         If violations exist but none recovered, returns RECOVERY_CAP.
         """
-
-        flags = self.mot_srv_flags if self.mot_srv_flags else self.env_srv_flags
         if not flags:
             return 0.0
 
@@ -134,6 +168,13 @@ class MetricsCollector:
 
         mot_srv = [e.mot_srv_rate() for e in self.episodes if e.mot_srv_flags]
         env_srv = [e.env_srv_rate() for e in self.episodes if e.env_srv_flags]
+        mot_boundary = [e.mot_boundary_rate() for e in self.episodes if e.mot_boundary_flags]
+        mot_pressure = [e.mean_mot_pressure() for e in self.episodes if e.mot_pressure_log]
+        mot_boundary_rt = [
+            e.mot_boundary_recovery_time()
+            for e in self.episodes
+            if e.mot_boundary_flags
+        ]
 
         result = {
             "label":            self.label,
@@ -150,5 +191,20 @@ class MetricsCollector:
             result["mot_srv_rate"] = {"mean": np.mean(mot_srv), "std": np.std(mot_srv)}
         if env_srv:
             result["env_srv_rate"] = {"mean": np.mean(env_srv), "std": np.std(env_srv)}
+        if mot_boundary:
+            result["mot_boundary_rate"] = {
+                "mean": np.mean(mot_boundary),
+                "std": np.std(mot_boundary),
+            }
+        if mot_pressure:
+            result["mot_pressure"] = {
+                "mean": np.mean(mot_pressure),
+                "std": np.std(mot_pressure),
+            }
+        if mot_boundary_rt:
+            result["mot_boundary_recovery_time"] = {
+                "mean": np.mean(mot_boundary_rt),
+                "std": np.std(mot_boundary_rt),
+            }
 
         return result
