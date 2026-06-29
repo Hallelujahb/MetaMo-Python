@@ -1,3 +1,5 @@
 numpy
 google-genai
 dotenv
+pygame
+matplotlib
