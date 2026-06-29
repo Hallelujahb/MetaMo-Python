@@ -61,6 +61,9 @@ class MetaMoAgent:
         self.assistant = None
 
     def reset_episode(self):
+        """
+        Reset the motivational state and episode logs before a new episode.
+        """
         self.mot = create_initial_motivational_state()
         self._pending_state = None
         self._pending_action = None
@@ -69,11 +72,21 @@ class MetaMoAgent:
         self.log_srv = []
 
     def _encode(self, state: dict) -> tuple[int, int, int, int]:
+        """
+        Encode the environment state into Q-table coordinates.
+        """
         ar, ac = state["pos"]
         mr, mc = state["mineral_pos"]
         return (ar, ac, mr, mc)
 
     def select_action(self, state: dict) -> tuple[int, dict]:
+        """
+        Select an action by combining Q-values, motivational consensus,
+        estimated risk, and exploration bonuses.
+
+        Returns both the chosen action index and a diagnostic dictionary
+        containing the decision metrics.
+        """
         stimulus = build_stimulus(state, self.mot)
         candidates = build_candidates(state, self.mot)
         mot_scores = consensus_candidate_scores(self.mot, stimulus, candidates, state)
@@ -133,6 +146,11 @@ class MetaMoAgent:
         event: Optional[str],
         alpha: dict,
     ):
+        """
+        Perform a Q-learning update and commit the pending motivational
+        state transition produced during action selection.
+        """
+
         s = self._encode(state)
         ns = self._encode(next_state)
         td_target = reward + (0.0 if done else self.gamma * np.max(self.q_table[ns]))
@@ -146,9 +164,16 @@ class MetaMoAgent:
             self._pending_action = None
 
     def decay_epsilon(self):
+        """Decay the exploration rate after each training episode."""
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def explain_action(self, user_text: str) -> str:
+        """
+        Generate a natural-language explanation of the most recent action.
+
+        If an assistant backend is available, a detailed explanation is
+        produced; otherwise, a fallback description is returned.
+        """
         if self.assistant is not None and self._pending_action is not None:
             try:
                 return self.assistant.generate_final_response(user_text, self._pending_action, self.mot)
@@ -158,18 +183,21 @@ class MetaMoAgent:
 
     @property
     def srv_rate(self) -> float:
+        """Return the proportion of steps spent outside the motivational safe region."""
         if not self.log_srv:
             return 0.0
         return sum(self.log_srv) / len(self.log_srv)
 
     @property
     def mean_arousal(self) -> float:
+        """Return the average motivational arousal recorded during the episode."""
         if not self.log_mot:
             return 0.0
         return float(np.mean([m.M[1] for m in self.log_mot])) if self.log_mot else 0.0
 
     @property
     def mean_safety(self) -> float:
+        """Return the average motivational safety threshold during the episode."""
         if not self.log_mot:
             return 0.0
         return float(np.mean([m.M[4] for m in self.log_mot])) if self.log_mot else 0.0

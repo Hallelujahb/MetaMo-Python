@@ -38,6 +38,12 @@ class GridWorld:
         self.reset()
 
     def reset(self):
+        """
+       Reset the environment and begin a new episode.
+
+       Randomizes lava locations, respawns a mineral, and restores the
+       agent's energy and internal counters.
+       """
         self.agent_pos = list(AGENT_START)
         self.lava_cells = self._generate_lava_cells()
         self.mineral_pos = list(AGENT_START)
@@ -50,6 +56,12 @@ class GridWorld:
         return self._get_state()
 
     def step(self, action: int):
+        """
+       Advance the environment by one action.
+
+       Applies movement, hazards, mineral collection, reward calculation,
+       and episode termination logic.
+       """
         if self.done:
             return self._get_state(), 0.0, True, {}
 
@@ -88,6 +100,9 @@ class GridWorld:
         return self._get_state(), reward, self.done, info
 
     def _get_state(self) -> dict:
+        """
+        Construct the observable environment state provided to the agent.
+        """
         row, col = self.agent_pos
         mrow, mcol = self.mineral_pos
         in_lava = tuple(self.agent_pos) in self.lava_cells
@@ -105,6 +120,10 @@ class GridWorld:
         }
 
     def _respawn_mineral(self):
+        """
+        Spawn a new mineral in either a safe or danger region according to
+        the configured probability.
+        """
         prefer_danger = self.rng.random() < self.danger_mineral_probability
         preferred_zone = "danger" if prefer_danger else "safe"
         backup_zone = "safe" if prefer_danger else "danger"
@@ -121,6 +140,9 @@ class GridWorld:
         self,
         zone: Literal["danger", "safe", "any"],
     ) -> list[tuple[int, int]]:
+        """
+        Return all valid mineral spawn locations within the requested zone.
+        """
         cells = []
         for r in range(GRID_SIZE):
             for c in range(GRID_SIZE):
@@ -138,6 +160,9 @@ class GridWorld:
         return cells
 
     def _generate_lava_cells(self) -> set[tuple[int, int]]:
+        """
+        Randomly generate lava locations while keeping the starting area safe.
+        """
         candidates = []
         for r in range(GRID_SIZE):
             for c in range(GRID_SIZE):
@@ -153,11 +178,14 @@ class GridWorld:
         return set(self.rng.sample(candidates, self.lava_cell_count))
 
     def _distance_to_nearest_lava(self, cell: tuple[int, int]) -> int:
+        """Compute the Manhattan distance to the nearest lava cell."""
         return min(abs(cell[0] - lava[0]) + abs(cell[1] - lava[1]) for lava in self.lava_cells)
 
     @staticmethod
     def _action_to_delta(action: int):
+        """Convert an action index into a movement vector."""
         return [(-1, 0), (1, 0), (0, -1), (0, 1)][action]
 
     def is_lava_cell(self, cell: tuple[int, int]) -> bool:
+        """Return True if the specified cell contains lava."""
         return cell in self.lava_cells

@@ -34,6 +34,7 @@ class EpisodeLog:
     # Computed metrics
  
     def completion_rate(self) -> float:
+        """Return the fraction of spawned minerals successfully collected."""
         if self.minerals_spawned == 0:
             return 0.0
         return self.minerals_collected / self.minerals_spawned
@@ -139,6 +140,7 @@ class EpisodeLog:
         return float(np.mean(rts)) if rts else 0.0
 
     def lava_rate(self) -> float:
+        """Return the fraction of episode steps spent inside lava."""
         if self.total_steps == 0:
             return 0.0
         return self.lava_steps / self.total_steps
@@ -155,6 +157,10 @@ class MetricsCollector:
         self.episodes.append(ep)
 
     def summary(self) -> dict:
+        """
+       Compute aggregate statistics across all recorded evaluation episodes.
+       Returns means and standard deviations for each evaluation metric.
+       """
         n = len(self.episodes)
         if n == 0:
             return {}

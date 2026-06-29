@@ -24,14 +24,17 @@ def _load_pyplot():
 
 
 def _episode_rewards(metrics):
+    """Extract per-episode total rewards from a metrics collector."""
     return [ep.total_reward for ep in metrics.episodes]
 
 
 def _episode_lava_touches(metrics):
+    """Extract the number of lava contacts for each episode."""
     return [ep.lava_steps for ep in metrics.episodes]
 
 
 def _moving_average(values, window=5):
+    """Compute a simple moving average over a sequence of values."""
     if len(values) < window:
         return []
     kernel = np.ones(window) / window
@@ -39,6 +42,7 @@ def _moving_average(values, window=5):
 
 
 def _save_reward_plot(baseline_rewards, metamo_rewards, output_dir):
+    """Generate and save the reward comparison plot."""
     plt = _load_pyplot()
     path = os.path.join(output_dir, "reward_baseline_vs_metamo.png")
     fig, ax = plt.subplots(figsize=(11, 6), dpi=140)
@@ -100,6 +104,7 @@ def _save_reward_plot(baseline_rewards, metamo_rewards, output_dir):
 
 
 def _save_lava_plot(baseline_lava, metamo_lava, output_dir):
+    """Generate and save the lava exposure comparison plot."""
     plt = _load_pyplot()
     path = os.path.join(output_dir, "lava_touches_baseline_vs_metamo.png")
     labels = ["Baseline", "MetaMo"]

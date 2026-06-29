@@ -49,6 +49,7 @@ PANEL_W  = 320
 
 
 def draw_bar(surf, x, y, w, value, color, label, font_xs):
+    """Draw a labeled horizontal progress bar."""
     value = max(0.0, min(1.0, float(value)))
     txt   = font_xs.render(f"{label} {value:.2f}", True, TEXT_COLOR)
     surf.blit(txt, (x, y))
@@ -61,6 +62,7 @@ def draw_bar(surf, x, y, w, value, color, label, font_xs):
 
 
 def draw_metric_line(surf, x, y, w, label, value, font_xs, value_color=TEXT_COLOR):
+    """Draw a single dashboard metric as a label-value pair."""
     lab = font_xs.render(label, True, DIM_TEXT)
     val = font_xs.render(value, True, value_color)
     surf.blit(lab, (x, y))
@@ -197,6 +199,7 @@ def draw_panel(surf, ox, oy, panel_h, label, color,
 # Private helpers  
 
 def _environment_region(env_state: dict):
+    """Classify the current environment region as Safe, Danger, or Lava."""
     if env_state["in_lava"]:
         return "LAVA",   RED
     if env_state["lava_distance"] <= _danger_distance():
@@ -205,6 +208,7 @@ def _environment_region(env_state: dict):
 
 
 def _danger_distance():
+    """Return the distance threshold defining the environmental danger zone."""
     try:
         from environment.gridworld import MINERAL_SPAWN_BAND
         return MINERAL_SPAWN_BAND
@@ -213,6 +217,7 @@ def _danger_distance():
 
 
 def _mean(summary: dict, key: str) -> float:
+    """Safely extract the mean value of a metric from a summary dictionary."""
     if not summary:
         return 0.0
     return float(summary.get(key, {}).get("mean", 0.0))
@@ -221,6 +226,7 @@ def _mean(summary: dict, key: str) -> float:
 def _draw_metamo_section(surf, x, y, w, font_xs,
                          mot_state, alpha_dict,
                          live_srv_rate, avg_srv):
+    """Render the MetaMo-specific motivational dashboard widgets."""
     safe       = mot_in_safe_region(mot_state)
     safe_color = GREEN if safe else RED
  
@@ -242,6 +248,7 @@ def _draw_metamo_section(surf, x, y, w, font_xs,
 
 def _draw_baseline_section(surf, x, y, w, font_xs,
                             env_state, live_srv_rate, avg_srv):
+    """Render the baseline agent dashboard widgets."""
     draw_metric_line(surf, x, y, w,
                      "Env SRV ep/avg",
                      f"{live_srv_rate:.2f}/{avg_srv:.2f}",

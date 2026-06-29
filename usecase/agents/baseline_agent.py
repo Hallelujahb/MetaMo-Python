@@ -62,6 +62,13 @@ class BaselineAgent:
 
     
     def _encode(self, state: dict) -> tuple:
+        """ 
+        Encode the environment state into a compact tabular representation.
+
+        The encoding captures the relative mineral direction and distance,
+        nearby lava and boundary information, and proximity to lava,
+        allowing the Q-table to generalize across different grid layouts.
+       """
         ar, ac = state["pos"]
         mr, mc = state["mineral_pos"]
         lava_cells = set(state.get("lava_cells", ()))
@@ -93,6 +100,13 @@ class BaselineAgent:
         )
 
     def select_action(self, state: dict) -> int:
+        """
+       Select an action using an epsilon-greedy policy.
+
+       During exploration, a safety-aware random action may be selected.
+       During exploitation, the action with the highest learned Q-value
+       is chosen.
+       """
         if self.rng.random() < self.epsilon:
             return self._select_exploratory_action(state)
 
@@ -106,6 +120,12 @@ class BaselineAgent:
 
     def update(self, state: dict, action: int, reward: float,
                next_state: dict, done: bool):
+        """
+        Update the Q-table using the Q-learning temporal-difference rule.
+
+       The environment reward is first shaped to encourage progress toward
+       minerals while discouraging dangerous or inefficient behaviour.
+       """
         s = self._encode(state)
         ns = self._encode(next_state)
         q_values = self._q_values(s)
@@ -124,23 +144,40 @@ class BaselineAgent:
         self.visit_counts[s][action] += 1.0
 
     def decay_epsilon(self):
+        """Decay the exploration rate while respecting the minimum value."""
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
     
-    # Reserved for future episode-local state.
     def reset_episode(self):
+        """
+        Reset any episode-specific agent state.
+        Reserved for future episode-local state. 
+        """
         pass
 
     def _q_values(self, key: tuple) -> np.ndarray:
+        """
+        Retrieve or initialize the Q-values associated with an encoded state.
+        """
         if key not in self.q_table:
             self.q_table[key] = np.zeros(self.ACTIONS)
             self.visit_counts[key] = np.zeros(self.ACTIONS)
         return self.q_table[key]
 
     def _select_exploratory_action(self, state: dict) -> int:
+        """
+        Sample a random exploratory action, optionally avoiding nearby lava.
+        """
+
         avoid_lava = self.rng.random() < self.safe_exploration_probability
         return self.rng.choice(self._valid_actions(state, avoid_lava=avoid_lava))
 
     def _shape_reward(self, state: dict, reward: float, next_state: dict) -> float:
+        """
+        Apply reward shaping to improve learning.
+
+        Rewards progress toward minerals while penalizing lava exposure,
+        boundary collisions, and movement through dangerous regions.
+        """
         shaped_reward = reward
         old_mineral_pos = state["mineral_pos"]
         collected_mineral = next_state["pos"] == old_mineral_pos
@@ -163,6 +200,11 @@ class BaselineAgent:
         return shaped_reward
 
     def _valid_actions(self, state: dict, avoid_lava: bool = False) -> list[int]:
+        """
+        Return all valid movement actions.
+
+        Optionally filters actions that would immediately move into lava.
+        """
         pos = state["pos"]
         lava_cells = set(state.get("lava_cells", ()))
         actions = set()
@@ -179,6 +221,12 @@ class BaselineAgent:
         return [action for action in range(self.ACTIONS)]
 
     def _next_position(self, pos: tuple[int, int], action: int) -> tuple[tuple[int, int], bool]:
+        """
+        Compute the next position resulting from an action.
+
+        Returns the new position together with a flag indicating whether
+        the move would cross the environment boundary.
+        """
         dr, dc = self.ACTION_DELTAS[action]
         next_pos = (pos[0] + dr, pos[1] + dc)
         if self._in_bounds(next_pos):
@@ -186,6 +234,9 @@ class BaselineAgent:
         return pos, True
 
     def _argmax_with_random_tie(self, q_values: np.ndarray, actions: list[int]) -> int:
+        """
+        Select the highest-valued action, breaking ties uniformly at random.
+        """
         max_score = max(q_values[action] for action in actions)
         best_actions = [
             action for action in actions
@@ -194,12 +245,15 @@ class BaselineAgent:
         return self.rng.choice(best_actions)
 
     def _in_bounds(self, pos: tuple[int, int]) -> bool:
+        """Return True if the given grid position lies within the environment."""
         return 0 <= pos[0] < self.grid_size and 0 <= pos[1] < self.grid_size
 
     @staticmethod
     def _manhattan_distance(a: tuple[int, int], b: tuple[int, int]) -> int:
+        """Compute the Manhattan distance between two grid positions."""
         return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
     @staticmethod
     def _sign(value: int) -> int:
+        """Return the sign of an integer as -1, 0, or 1."""
         return (value > 0) - (value < 0)

@@ -52,10 +52,12 @@ AMBER = (255, 180,  60)
 
  
 def lava_cells_from_state(env_state: dict) -> tuple:
+    """Extract lava cell locations from an environment state."""
     return tuple(env_state.get("lava_cells", LAVA_CELLS))
 
 
 def in_environment_unsafe_zone(env_state: dict) -> bool:
+    """Return whether the agent is currently inside the environmental danger region."""
     return bool(env_state["in_lava"] or env_state["lava_distance"] <= DANGER_DISTANCE)
 
 
@@ -69,6 +71,7 @@ def environment_region(env_state: dict) -> tuple:
 
 
 def mean_from_summary(summary: dict, key: str) -> float:
+    """Retrieve the mean value of a summary metric, returning zero if unavailable."""
     if not summary:
         return 0.0
     return float(summary.get(key, {}).get("mean", 0.0))
@@ -158,7 +161,8 @@ def clear_episode_logs():
 
 def step_baseline(baseline, env_bl, s_bl, ep_log_bl, reward_bl, lava_bl, clank_fn=None):
     """
-    Advance baseline by one step.
+    Execute one environment step for the baseline agent and update
+    evaluation statistics.
     Returns (s_bl, reward_bl, lava_bl, done_bl).
 
     SRV for baseline uses env_srv_flags (danger-band proxy).
@@ -193,7 +197,9 @@ def step_baseline(baseline, env_bl, s_bl, ep_log_bl, reward_bl, lava_bl, clank_f
 
 def step_metamo(metamo, env_mm, s_mm, ep_log_mm, reward_mm, lava_mm, clank_fn=None):
     """
-    Advance MetaMo by one step.
+    Execute one environment step for the MetaMo agent, updating both
+    evaluation statistics and motivational metrics.
+
     Returns (s_mm, reward_mm, lava_mm, done_mm, alpha_mm).
 
     SRV for MetaMo uses mot_srv_flags (motivational internal signal).

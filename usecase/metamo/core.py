@@ -58,22 +58,27 @@ def in_safe_region(mot_state: MotivationalState) -> bool:
 
 
 def _l1_distance(a: tuple[int, int], b: tuple[int, int]) -> int:
+    """Return the Manhattan distance between two positions."""
     return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
 
 def _lava_cells(env_state: dict) -> tuple[tuple[int, int], ...]:
+    """Extract the lava cell locations from an environment state."""
     return tuple(env_state.get("lava_cells", LAVA_CELLS))
 
 
 def _distance_to_lava(pos: tuple[int, int], lava_cells: tuple[tuple[int, int], ...]) -> int:
+    """Return the distance from a position to the nearest lava cell."""
     return min(_l1_distance(pos, lava) for lava in lava_cells)
 
 
 def _is_lava_cell(pos: tuple[int, int], lava_cells: tuple[tuple[int, int], ...]) -> bool:
+    """Return whether a position is occupied by lava."""
     return pos in lava_cells
 
 
 def _project_move(env_state: dict, action: int) -> tuple[int, int]:
+    """Project the agent's next position for a candidate action."""
     row, col = env_state["pos"]
     dr, dc = DELTAS[action]
     nr, nc = row + dr, col + dc
@@ -84,6 +89,9 @@ def _project_move(env_state: dict, action: int) -> tuple[int, int]:
 
 
 def build_stimulus(env_state: dict, mot_state: Optional[MotivationalState] = None) -> Stimulus:
+    """
+    Build the MetaMo appraisal stimulus from the current environment state.
+    """
     distance = abs(env_state["dx_mineral"]) + abs(env_state["dy_mineral"])
     lava_dist = env_state.get("lava_distance", _distance_to_lava(env_state["pos"], _lava_cells(env_state)))
     risk = 1.0 if env_state["in_lava"] else float(np.clip(0.60 - lava_dist * 0.16, 0.0, 1.0))
@@ -95,6 +103,9 @@ def build_stimulus(env_state: dict, mot_state: Optional[MotivationalState] = Non
 
 
 def _make_local_candidate(env_state: dict, action: int) -> Action:
+    """
+    Construct a MetaMo action candidate describing one possible movement.
+    """
     lava_cells = _lava_cells(env_state)
     next_pos = _project_move(env_state, action)
     dist_now = abs(env_state["dx_mineral"]) + abs(env_state["dy_mineral"])
@@ -143,6 +154,9 @@ def _make_local_candidate(env_state: dict, action: int) -> Action:
 
 
 def build_candidates(env_state: dict, mot_state: Optional[MotivationalState] = None) -> List[Action]:
+    """
+    Generate motivational action candidates for all movement directions.
+    """
     return [_make_local_candidate(env_state, action) for action in range(len(DELTAS))]
 
 
@@ -220,6 +234,9 @@ def transition_for_action(
 
 
 def choose_action(env_state: dict, mot_state: MotivationalState) -> tuple[Action, MotivationalState, Stimulus]:
+    """
+    Select an action using the MetaMo consensus decision process.
+    """
     stimulus = build_stimulus(env_state, mot_state)
     candidates = build_candidates(env_state, mot_state)
     safety_state, growth_state = build_consensus_states(env_state, mot_state, stimulus)
@@ -235,4 +252,5 @@ def choose_action(env_state: dict, mot_state: MotivationalState) -> tuple[Action
 
 
 def is_safe_motivational_state(mot_state: MotivationalState) -> bool:
+    """Return whether the motivational state lies within the MetaMo safe region."""
     return in_safe_region(mot_state)
