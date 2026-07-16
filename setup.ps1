@@ -36,18 +36,6 @@ python -m pip install --upgrade pip
 Write-Host "Installing dependencies from requirements.txt ..."
 pip install -r requirements.txt
 
-# create .env if .env.example exists
-if (-not (Test-Path ".env")) {
-    if (Test-Path ".env.example") {
-        Copy-Item ".env.example" ".env"
-        Write-Host "Created .env from .env.example. Add your GEMINI_API_KEY to it."
-    } else {
-        Write-Host "No .env.example found, skipping .env creation."
-    }
-} else {
-    Write-Host ".env already exists, leaving it as is."
-}
-
 Write-Host "Setup complete."
 Write-Host "Activate with: .\$VenvDir\Scripts\Activate.ps1"
 Write-Host "Run with: python usecase\simulation\main.py"
